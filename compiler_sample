@@ -1,0 +1,69 @@
+# Bone Density Compiler
+# Author: Mounisha
+# Date: 2023-04-24
+
+library(tidyverse)
+library(readxl)
+
+# Define directory paths and column names
+bd_dirs <- list(
+  main = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data",
+  p1 = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data/problem1_REJV_file/",
+  p2 = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data/problem2_miss_mv/",
+  p3 = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data/problem3_ex_tag/",
+  p4 = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data/problem4_diet/",
+  p5 = "M:/SLAM_May2022_onward/Results/Compilers/Bone density/Raw Data/problem5_dataset/"
+)
+
+columns <- list(
+  main = c("genotype", "sex", "idno", "tag", "unit", "tissue_volume", "bone_volume", "medulary_volume", 
+           "Percent_bone_volume", "tissue_surface", "bone_surface", "intersection_surface", 
+           "bone_surface/volume_ratio", "bone_surface_density", "CORTICAL_thickness", 
+           "Fractal_dimension", "Lower_grey_threshold", "Upper_grey_threshold", "Pixel_size",
+           "date_of_measurement", "Dataset", "extra"),
+  p1 = c("tag", "unit", "tissue_volume", "bone_volume", "medulary_volume", "Percent_bone_volume",
+         "tissue_surface", "bone_surface", "intersection_surface", "bone_surface/volume_ratio", 
+         "bone_surface_density", "CORTICAL_thickness", "Fractal_dimension", "standard_dev",
+         "Lower_grey_threshold", "Upper_grey_threshold", "Pixel_size", "date_of_measurement", 
+         "Dataset", "extra"),
+  p3 = c("genotype", "sex", "idno", "tag", "idno_extra", "unit", "tissue_volume", "bone_volume",
+         "medulary_volume", "Percent_bone_volume", "tissue_surface", "bone_surface", 
+         "intersection_surface", "bone_surface/volume_ratio", "bone_surface_density", 
+         "CORTICAL_thickness", "Fractal_dimension", "Lower_grey_threshold", 
+         "Upper_grey_threshold", "Pixel_size", "date_of_measurement", "Dataset", "extra"),
+  p4 = c("diet", "genotype", "sex", "idno", "tag", "unit", "tissue_volume", "bone_volume",
+         "medulary_volume", "Percent_bone_volume", "tissue_surface", "bone_surface", 
+         "intersection_surface", "bone_surface/volume_ratio", "bone_surface_density", 
+         "CORTICAL_thickness", "Fractal_dimension", "Lower_grey_threshold", 
+         "Upper_grey_threshold", "Pixel_size", "date_of_measurement", "Dataset", "extra")
+)
+
+# Helper function to process files
+process_files <- function(dir, col_names, skip = 4, time_pt = TRUE) {
+  files <- list.files(dir, pattern = '3D', full.names = TRUE, recursive = FALSE)
+  map_dfr(files, function(file) {
+    data <- read_excel(file, skip = skip, col_names = col_names)
+    data <- data %>% mutate(
+      leg = case_when(
+        str_detect(Dataset, "Lf") ~ "Left",
+        str_detect(Dataset, "Rt") ~ "Right",
+        TRUE ~ NA_character_
+      ),
+      cortical = if_else(str_detect(Dataset, "cortical"), "cortical", NA_character_),
+      file_path = basename(file),
+      time_pt_in_mo = if (time_pt) gsub(".*SLAM|mo.*", "", Dataset) else NA_character_
+    ) %>% drop_na(tag)
+    return(data)
+  })
+}
+
+# Process all datasets
+main_merged <- process_files(bd_dirs$main, columns$main)
+p1_merged <- process_files(bd_dirs$p1, columns$p1, skip = 3, time_pt = FALSE)
+p2_merged <- process_files(bd_dirs$p2, columns$main, skip = 3)
+p3_merged <- process_files(bd_dirs$p3, columns$p3, skip = 3)
+p4_merged <- process_files(bd_dirs$p4, columns$p4, skip = 3)
+
+# Combine and save results
+final_data <- bind_rows(main_merged, p1_merged, p2_merged, p3_merged, p4_merged)
+write_csv(final_data, "BoneDensity_Compiled.csv")
