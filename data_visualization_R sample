@@ -1,0 +1,139 @@
+# Load libraries for data analysis and visualization
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggpubr)
+library(readr)
+library(knitr)
+library(corrplot)
+library(reshape2)
+library(stats)
+library(GGally)
+library(plotly)
+
+# Step 1: Read Data
+NHP <- read.csv("/path/to/NHP_advia_per_ID_perDate.csv")
+WIS <- read.csv("/path/to/mergedWIS.csv")
+
+# Step 2: Calculate Platelet-Lymphocyte Ratio (PLR) for NHP
+NHP_P_L <- NHP[, c(1:11, 43, 54)]
+NHP_P_L$PLR <- NHP_P_L$Platelet.Count / NHP_P_L$abs_lymphocytes_mk
+NHP_P_L$Study <- paste("NHP", NHP_P_L$Diet)
+NHP_P_L <- NHP_P_L[, c(2, 3, 9, 10, 15, 14)]
+
+# Step 3: Remove NA and Outliers for PLR
+NHP_P_L <- NHP_P_L %>% drop_na(PLR)
+Q1 <- quantile(NHP_P_L$PLR, 0.25)
+Q3 <- quantile(NHP_P_L$PLR, 0.75)
+IQR <- IQR(NHP_P_L$PLR)
+upper_lim <- Q3 + 1.5 * IQR
+lower_lim <- Q1 - 1.5 * IQR
+NHP_no_outliers <- NHP_P_L %>% filter(PLR > lower_lim & PLR < upper_lim)
+
+# Step 4: Data Visualization for NHP PLR by Age
+ggplot(NHP_no_outliers, aes(x = age_years, y = PLR, col = Study)) +
+  geom_point(alpha = 0.2, position = 'jitter', size = 1) +
+  geom_smooth(level = 0.95, size = 2, se = FALSE) +
+  scale_color_manual(values = c("blue2", "red")) +
+  coord_cartesian(ylim = c(0, 0.5), xlim = c(0, 40)) +
+  scale_x_continuous(n.breaks = 6) +
+  labs(x = 'Age (Years)', y = "PLR")
+
+# Step 5: Model: ANOVA for NHP PLR
+model_nhp <- aov(PLR ~ Cohort * Diet * age_binning, data = NHP_no_outliers)
+summary(model_nhp)
+
+# Step 6: Calculate PLR for WIS and Data Cleanup
+WIS$PLR <- WIS$Platelet.Count / WIS$abs_lymphocytes_mk
+WIS_P_L <- WIS[, c(4, 5, 8, 9, 35, 38)]
+WIS_P_L <- WIS_P_L %>% drop_na(PLR)
+Q1 <- quantile(WIS_P_L$PLR, 0.25)
+Q3 <- quantile(WIS_P_L$PLR, 0.75)
+IQR <- IQR(WIS_P_L$PLR)
+upper_lim <- Q3 + 1.5 * IQR
+lower_lim <- Q1 - 1.5 * IQR
+WIS_no_outliers <- WIS_P_L %>% filter(PLR > lower_lim & PLR < upper_lim)
+
+# Step 7: Data Visualization for WIS PLR by Age
+ggplot(WIS_no_outliers, aes(x = age_years, y = PLR, col = Study)) +
+  geom_point(alpha = 0.2, position = 'jitter', size = 1) +
+  geom_smooth(level = 0.95, size = 2, se = FALSE) +
+  scale_color_manual(values = c("green4", "purple2")) +
+  coord_cartesian(ylim = c(0, 0.2), xlim = c(0, 40)) +
+  scale_x_continuous(n.breaks = 6) +
+  labs(x = 'Age (Years)', y = "PLR")
+
+# Step 8: Model: ANOVA for WIS PLR
+model_wis <- aov(PLR ~ Cohort * Diet * age_binning, data = WIS_no_outliers)
+summary(model_wis)
+
+# Step 9: Merge NHP and WIS Data
+merged_PLR <- bind_rows(NHP_no_outliers %>% mutate(Cohort = "NHP"), 
+                        WIS_no_outliers %>% mutate(Cohort = "WIS"))
+
+# Step 10: Mean PLR Ratio by Study and Age Bin
+mean_ratio <- merged_PLR %>%
+  group_by(Study, age_binning) %>%
+  summarise(mean_value = mean(PLR))
+
+ggplot(mean_ratio, aes(x = age_binning, y = mean_value, group = Study)) +
+  geom_point(size = 3, aes(col = Study)) +
+  geom_line(size = 2, aes(col = Study)) +
+  scale_color_manual(values = c("blue2", "red", "green4", "purple2")) +
+  coord_cartesian(ylim = c(0, 0.3), xlim = c(0, 8)) +
+  labs(x = 'Age Bins', y = "PLR", title = "Mean Value of PLR by Study")
+
+# Step 11: MLR Calculation for NHP and WIS
+# NHP MLR
+NHP_M_L <- NHP[, c(1:11, 56, 54)]
+NHP_M_L$MLR <- NHP_M_L$abs_monocytes_mk / NHP_M_L$abs_lymphocytes_mk
+NHP_M_L$Study <- paste("NHP", NHP_M_L$Diet)
+NHP_M_L <- NHP_M_L[, c(2, 3, 9, 10, 15, 14)]
+NHP_M_L <- NHP_M_L %>% drop_na(MLR)
+
+# Remove outliers for MLR in NHP
+Q1 <- quantile(NHP_M_L$MLR, 0.25)
+Q3 <- quantile(NHP_M_L$MLR, 0.75)
+IQR <- IQR(NHP_M_L$MLR)
+upper_lim <- Q3 + 1.5 * IQR
+lower_lim <- Q1 - 1.5 * IQR
+NHP_no_outliers <- NHP_M_L %>% filter(MLR > lower_lim & MLR < upper_lim)
+
+# Step 12: Visualization of NHP MLR by Age
+ggplot(NHP_no_outliers, aes(x = age_years, y = MLR, col = Study)) +
+  geom_point(alpha = 0.2, position = 'jitter', size = 1) +
+  geom_smooth(level = 0.95, size = 2, se = FALSE) +
+  scale_color_manual(values = c("blue2", "red")) +
+  coord_cartesian(ylim = c(0, 0.4), xlim = c(0, 40)) +
+  scale_x_continuous(n.breaks = 6) +
+  labs(x = "Age (Years)", y = "MLR")
+
+# Step 13: Model: ANOVA for NHP MLR
+model_nhp_mlr <- aov(MLR ~ Cohort * Diet * age_binning, data = NHP_no_outliers)
+summary(model_nhp_mlr)
+
+# Step 14: MLR Calculation for WIS
+WIS$MLR <- WIS$abs_monocytes_mk / WIS$abs_lymphocytes_mk
+WIS_M_L <- WIS[, c(4, 5, 8, 9, 35, 37)]
+WIS_M_L <- WIS_M_L %>% drop_na(MLR)
+
+# Remove outliers for MLR in WIS
+Q1 <- quantile(WIS_M_L$MLR, 0.25)
+Q3 <- quantile(WIS_M_L$MLR, 0.75)
+IQR <- IQR(WIS_M_L$MLR)
+upper_lim <- Q3 + 1.5 * IQR
+lower_lim <- Q1 - 1.5 * IQR
+WIS_no_outliers <- WIS_M_L %>% filter(MLR > lower_lim & MLR < upper_lim)
+
+# Step 15: Visualization of WIS MLR by Age
+ggplot(WIS_no_outliers, aes(x = age_years, y = MLR, col = Study)) +
+  geom_point(alpha = 0.2, position = 'jitter', size = 1) +
+  geom_smooth(level = 0.95, size = 2, se = FALSE) +
+  scale_color_manual(values = c("green4", "purple2")) +
+  coord_cartesian(ylim = c(0, 0.3), xlim = c(0, 40)) +
+  scale_x_continuous(n.breaks = 6) +
+  labs(x = "Age (Years)", y = "MLR")
+
+# Step 16: Combine NHP and WIS for MLR Analysis
+merged_MLR <- bind_rows(NHP_no_outliers %>% mutate(Cohort = "NHP"), 
+                        WIS_no_outliers %>%
