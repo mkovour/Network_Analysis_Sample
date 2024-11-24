@@ -1,73 +1,84 @@
-# Import required libraries
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from Bio import SeqIO
+from Bio.SeqUtils import gc_fraction
+import pysam
 import subprocess
-import pandas as pd
-from matplotlib import pyplot as plt
-import seaborn as sns
-from scipy.stats import zscore
 
-# Paths (adjust paths as needed)
-fastq_files = ["sample_R1.fastq.gz", "sample_R2.fastq.gz"]
-reference_genome = "grch38_index"
-annotation_file = "genes.gtf"
+# Define file paths
+fastq_file_path = "/data/ngs_project/experiment_2024/sample_reads.fastq"
+aligned_bam_path = "/data/ngs_project/experiment_2024/aligned_reads.bam"
+output_dir = "/data/ngs_project/experiment_2024/analysis_results/"
 
-# 1. Quality Control
-def quality_control(fastq_files):
-    for file in fastq_files:
-        subprocess.run(["fastqc", file])
-    subprocess.run(["multiqc", "./"])
+# Create output directory if it doesn't exist
+os.makedirs(output_dir, exist_ok=True)
 
-# 2. Read Alignment
-def align_reads(fastq_files, reference_genome):
-    cmd = [
-        "hisat2",
-        "-x", reference_genome,
-        "-1", fastq_files[0],
-        "-2", fastq_files[1],
-        "-S", "aligned_reads.sam"
-    ]
-    subprocess.run(cmd)
+# Step 1: Read FASTQ Data
+def read_fastq_data(file_path):
+    """Reads FASTQ file and returns a list of sequences."""
+    return [str(record.seq) for record in SeqIO.parse(file_path, "fastq")]
 
-# 3. Transcript Quantification
-def quantify_expression(sam_file, annotation_file):
-    cmd = [
-        "stringtie", sam_file,
-        "-G", annotation_file,
-        "-o", "transcripts.gtf",
-        "-e", "-B"
-    ]
-    subprocess.run(cmd)
+sequences = read_fastq_data(fastq_file_path)
 
-# 4. Differential Expression Analysis (DESeq2 in R)
-def differential_expression(count_file, meta_file):
-    # Placeholder: DESeq2 code in R (requires Rscript execution)
-    r_script = """
-    library(DESeq2)
-    counts <- read.csv('{count_file}', row.names=1)
-    meta <- read.csv('{meta_file}', row.names=1)
-    dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = ~ condition)
-    dds <- DESeq(dds)
-    res <- results(dds)
-    write.csv(as.data.frame(res), "differential_expression_results.csv")
-    """
-    with open("deseq2_analysis.R", "w") as f:
-        f.write(r_script.format(count_file=count_file, meta_file=meta_file))
-    subprocess.run(["Rscript", "deseq2_analysis.R"])
+# Step 2: Quality Filtering (Simulated)
+def filter_quality(sequences, threshold=30):
+    """Filter sequences based on a simulated quality score threshold."""
+    return [seq for seq in sequences if np.random.randint(25, 40) >= threshold]
 
-# 5. Visualization of DEGs
-def visualize_differential_expression(results_file):
-    df = pd.read_csv(results_file)
-    df["log2FC"] = zscore(df["log2FoldChange"])
-    sns.scatterplot(data=df, x="log2FoldChange", y="-log10(padj)", hue="log2FC", palette="coolwarm")
-    plt.title("Volcano Plot of DEGs")
-    plt.show()
+filtered_sequences = filter_quality(sequences)
 
-# Main pipeline workflow
-def main():
-    quality_control(fastq_files)
-    align_reads(fastq_files, reference_genome)
-    quantify_expression("aligned_reads.sam", annotation_file)
-    differential_expression("counts.csv", "metadata.csv")
-    visualize_differential_expression("differential_expression_results.csv")
+# Step 3: GC Content Calculation
+def calculate_gc_content(sequences):
+    """Calculates GC content for each sequence."""
+    return [gc_fraction(seq) * 100 for seq in sequences]
 
-if __name__ == "__main__":
-    main()
+gc_contents = calculate_gc_content(filtered_sequences)
+
+# Step 4: Plot GC Content Distribution
+plt.hist(gc_contents, bins=50, color='skyblue', edgecolor='black')
+plt.title('GC Content Distribution')
+plt.xlabel('GC Content (%)')
+plt.ylabel('Frequency')
+plt.savefig(os.path.join(output_dir, 'gc_content_distribution.png'))
+plt.show()
+
+# Step 5: Alignment Quality Check (BAM)
+def align_quality_check(bam_file_path):
+    """Checks mapping quality in the BAM file."""
+    samfile = pysam.AlignmentFile(bam_file_path, "rb")
+    total_reads = samfile.count()
+    mapped_reads = samfile.mapped
+    return total_reads, mapped_reads
+
+total_reads, mapped_reads = align_quality_check(aligned_bam_path)
+
+# Step 6: Variant Calling (using bcftools)
+def call_variants(bam_file_path, output_vcf_path):
+    """Calls variants using bcftools."""
+    command = f"bcftools mpileup -f /data/ngs_project/reference/genome.fa {bam_file_path} | bcftools call -mv -Ob -o {output_vcf_path}"
+    subprocess.run(command, shell=True, check=True)
+
+vcf_output_path = os.path.join(output_dir, 'variants_output.vcf')
+call_variants(aligned_bam_path, vcf_output_path)
+
+# Step 7: Generate and Save Report
+def generate_report(sequences, gc_contents):
+    """Generates a brief sequence report."""
+    return {
+        "Total Sequences": len(sequences),
+        "Avg GC Content (%)": np.mean(gc_contents),
+        "Min GC Content (%)": np.min(gc_contents),
+        "Max GC Content (%)": np.max(gc_contents),
+        "Avg Sequence Length": np.mean([len(seq) for seq in sequences])
+    }
+
+sequence_report = generate_report(filtered_sequences, gc_contents)
+
+# Save the report
+report_file_path = os.path.join(output_dir, 'sequence_analysis_report.txt')
+with open(report_file_path, 'w') as report_file:
+    for key, value in sequence_report.items():
+        report_file.write(f"{key}: {value}\n")
+
+print(f"Analysis completed. Report saved to {report_file_path}")
